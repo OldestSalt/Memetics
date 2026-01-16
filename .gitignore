@@ -209,3 +209,4 @@ config/*
 .postgres
 .minio
 .weaviate
+.idea

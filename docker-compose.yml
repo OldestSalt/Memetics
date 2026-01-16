@@ -7,9 +7,16 @@ services:
       - BOT_TOKEN=${BOT_TOKEN}
       - DEV=${DEV}
       - MINIO_PORT=${MINIO_PORT}
-      - POSTGRES_URL=postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@postgres:${POSTGRES_PORT}/images
       - MINIO_ROOT_USER=${MINIO_ROOT_USER}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+    restart: unless-stopped
+
+  db_manager:
+    container_name: db_manager
+    build: db_manager
+    environment:
+      - DEV=${DEV}
+      - POSTGRES_URL=postgresql://${DB_USER}:${DB_PASSWORD}@postgres:${POSTGRES_PORT}/images
     restart: unless-stopped
 
   minio:
@@ -68,6 +75,13 @@ services:
   embedder:
     container_name: embedder
     build: embedder
+    environment:
+      - DEV=${DEV}
+      - WEAVIATE_PORT=${WEAVIATE_PORT}
+      - RABBITMQ_PORT=${RABBITMQ_PORT}
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+    restart: unless-stopped
 
   weaviate:
     image: "semitechnologies/weaviate:1.35"
