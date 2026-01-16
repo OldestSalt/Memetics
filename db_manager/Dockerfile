@@ -1,7 +1,7 @@
 FROM python:3.12.10
 LABEL authors="OldestSalt"
 
-WORKDIR /bot
+WORKDIR /db_manager
 
 COPY requirements.txt .
 

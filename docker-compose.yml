@@ -78,14 +78,30 @@ services:
     environment:
       - DEV=${DEV}
       - WEAVIATE_PORT=${WEAVIATE_PORT}
+      - WEAVIATE_GRPC_PORT=${WEAVIATE_GRPC_PORT}
       - RABBITMQ_PORT=${RABBITMQ_PORT}
       - MINIO_ROOT_USER=${MINIO_ROOT_USER}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+      - COLLECTION_NAME=${COLLECTION_NAME}
     restart: unless-stopped
 
   weaviate:
     image: "semitechnologies/weaviate:1.35"
     container_name: weaviate
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - '${WEAVIATE_PORT}'
+      - --scheme
+      - http
+    volumes:
+      - ./.weaviate:/var/lib/weaviate
+    environment:
+      - AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true
+      - PERSISTENCE_DATA_PATH=/var/lib/weaviate
+      - CLUSTER_HOSTNAME=node1
+    restart: unless-stopped
 
 
 # sentry kibana loki grafana prometheus clickhouse elasticsearch redash

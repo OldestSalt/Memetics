@@ -19,7 +19,7 @@ logger = logging.getLogger("DB_MANAGER")
 
 load_dotenv()
 
-RABBITMQ_PORT = os.getenv("RABBITMQ_PORT")
+RABBITMQ_PORT = int(os.getenv("RABBITMQ_PORT"))
 DEV = bool(os.getenv("DEV"))
 
 connection = pika.BlockingConnection(
@@ -55,9 +55,11 @@ class DatabaseManager:
 db_manager = DatabaseManager(os.getenv("POSTGRES_URL"))
 
 def handle_message(ch, method, properties, body):
+    logger.info(f"Received message")
     img_dict = json.loads(body.decode("utf-8"))
     db_manager.add_image(img_dict)
     ch.basic_ack(delivery_tag=method.delivery_tag)
+    logger.info("Done. Acknowledged has been sent")
 
 def main():
     logger.info("Starting up the queue...")

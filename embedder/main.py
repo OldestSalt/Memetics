@@ -7,6 +7,7 @@ from PIL import Image
 import boto3
 import io
 from vllm import LLM
+import weaviate
 
 
 logging.basicConfig(
@@ -17,8 +18,10 @@ logger = logging.getLogger("EMBEDDER")
 
 load_dotenv()
 
-WEAVIATE_PORT = os.getenv("WEAVIATE_PORT")
-RABBITMQ_PORT = os.getenv("RABBITMQ_PORT")
+WEAVIATE_PORT = int(os.getenv("WEAVIATE_PORT"))
+WEAVIATE_GRPC_PORT = int(os.getenv("WEAVIATE_GRPC_PORT"))
+RABBITMQ_PORT = int(os.getenv("RABBITMQ_PORT"))
+COLLECTION_NAME = os.getenv("COLLECTION_NAME")
 DEV = bool(os.getenv("DEV"))
 
 connection = pika.BlockingConnection(
@@ -29,35 +32,67 @@ channel.exchange_declare(exchange="images", exchange_type="fanout")
 channel.queue_declare(queue="embeddings", durable=True, exclusive=True)
 channel.queue_bind(exchange="images", queue="embeddings")
 
+logger.info("Starting up boto client")
 boto_client = boto3.client(
     "s3",
     endpoint_url="http://localhost:9000" if DEV else "http://minio:9000",
     aws_access_key_id=os.getenv("MINIO_ROOT_USER"),
     aws_secret_access_key=os.getenv("MINIO_ROOT_PASSWORD")
 )
+logger.info("Done")
+
+logger.info("Starting up Weaviate client")
+weaviate_client = weaviate.connect_to_local(
+    host="localhost" if DEV else "weaviate",
+    port=WEAVIATE_GRPC_PORT,
+    grpc_port=WEAVIATE_GRPC_PORT,
+)
+if not weaviate_client.collections.exists(COLLECTION_NAME):
+    logger.info(f"Collection does not exist yet, creating '{COLLECTION_NAME}' collection")
+    weaviate_client.collections.create(
+        COLLECTION_NAME,
+        vector_config=weaviate.classes.config.Configure.Vectors.self_provided()
+    )
+collection = weaviate_client.collections.use(COLLECTION_NAME)
+logger.info("Done")
+
+logger.info("Preparing the embedding model")
 model = LLM(model="Qwen/Qwen3-VL-Embedding-2B", runner="pooling")
+logger.info("Done")
 
 def handle_message(ch, method, properties, body):
+    logger.info(f"Received message")
     img_dict = json.loads(body.decode("utf-8"))
     response = boto_client.get_object(bucket_name=img_dict["bucket"], object_name=img_dict["file_name"])
     img_bytes = io.BytesIO(response["Body"].read())
     img = Image.open(img_bytes)
     img.load()
 
+    logger.info("Embedding")
     embedding = model.embed({
         "prompt": "<|vision_start|><|image_pad|><|vision_end|>",
         "multi_modal_data": {
             "image": img
         }
-    }).outputs.embedding
+    })[0].outputs.embedding
+
+    logger.info("Inserting to database")
+    collection.data.insert(
+        properties={
+            "bucket": img_dict["bucket"],
+            "file_name": img_dict["file_name"],
+        },
+        vector=embedding,
+    )
 
     ch.basic_ack(delivery_tag=method.delivery_tag)
+    logger.info("Done. Acknowledged has been sent")
 
 def main():
     logger.info("Starting up the queue...")
     channel.basic_qos(prefetch_count=1)
     channel.basic_consume(queue="embeddings", on_message_callback=handle_message)
-    logger.info("Listening for messages...")
+    logger.info("Ready. Listening for messages...")
     channel.start_consuming()
 
 if __name__ == '__main__':
