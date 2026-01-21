@@ -85,9 +85,9 @@ services:
       timeout: 30s
       retries: 1
 
-  embedder:
-    container_name: embedder
-    build: embedder
+  uploader:
+    container_name: uploader
+    build: uploader
     environment:
       - DEV=${DEV}
       - WEAVIATE_PORT=${WEAVIATE_PORT}
@@ -103,7 +103,6 @@ services:
       - weaviate
       - minio
       - rabbitmq
-      - vllm
 
   weaviate:
     image: "semitechnologies/weaviate:1.35.3"
@@ -123,32 +122,33 @@ services:
       - CLUSTER_HOSTNAME=node1
     restart: unless-stopped
 
-  vllm:
-    image: vllm/vllm-openai:nightly
-    container_name: vllm
-    runtime: nvidia
-    restart: unless-stopped
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - capabilities: [gpu]
-    volumes:
-      - .models:/models
-    ipc: host
-    command: >
-      --model Qwen/Qwen3-VL-Embedding-2B
-      --host 0.0.0.0
-      --port ${VLLM_PORT}
-      --gpu-memory-utilization 0.8
-      --max-model-len 4096
-      --runner pooling
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:${VLLM_PORT}/health" ]
-      interval: ${HEALTHCHECK_INTERVAL}
-      timeout: 20s
-      retries: 3
-      start_period: 3m
+#  vllm:
+#    image: vllm/vllm-openai:nightly
+#    container_name: vllm
+#    restart: unless-stopped
+#    ports:
+#      - "127.0.0.1:${VLLM_PORT}:3378"
+#    deploy:
+#      resources:
+#        reservations:
+#          devices:
+#            - capabilities: [gpu]
+#    volumes:
+#      - .models:/models
+#    ipc: host
+#    command: >
+#      --model Qwen/Qwen3-VL-Embedding-2B
+#      --host 0.0.0.0
+#      --port ${VLLM_PORT}
+#      --gpu-memory-utilization 0.8
+#      --max-model-len 4096
+#      --runner pooling
+#    healthcheck:
+#      test: [ "CMD", "curl", "-f", "http://localhost:${VLLM_PORT}/health" ]
+#      interval: ${HEALTHCHECK_INTERVAL}
+#      timeout: 20s
+#      retries: 3
+#      start_period: 3m
 
 volumes:
   .postgres:
