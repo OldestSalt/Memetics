@@ -6,9 +6,9 @@ import logging
 from PIL import Image
 import boto3
 import io
-from openai import OpenAI
 import weaviate
 import base64
+import httpx
 
 logging.basicConfig(
     level=logging.INFO,
@@ -21,7 +21,7 @@ load_dotenv()
 WEAVIATE_PORT = int(os.getenv("WEAVIATE_PORT"))
 WEAVIATE_GRPC_PORT = int(os.getenv("WEAVIATE_GRPC_PORT"))
 RABBITMQ_PORT = int(os.getenv("RABBITMQ_PORT"))
-VLLM_PORT = int(os.getenv("VLLM_PORT"))
+EMBEDDER_PORT = int(os.getenv("EMBEDDER_PORT"))
 COLLECTION_NAME = os.getenv("COLLECTION_NAME")
 DEV = bool(int(os.getenv("DEV")))
 
@@ -54,12 +54,10 @@ if not weaviate_client.collections.exists(COLLECTION_NAME):
 collection = weaviate_client.collections.use(COLLECTION_NAME)
 logger.info("Done")
 
-logger.info("Preparing the embedding model")
-model_client = OpenAI(
-    api_key="",
-    base_url=f"http://vllm:{VLLM_PORT}/v1"
+model_client = httpx.Client(
+    base_url=f"http://localhost:{EMBEDDER_PORT}" if DEV else f"http://embedder:{EMBEDDER_PORT}",
+    timeout=None
 )
-logger.info("Done")
 
 connection = pika.BlockingConnection(
     pika.ConnectionParameters(
@@ -80,16 +78,24 @@ def handle_message(ch, method, properties, body):
     logger.info(f"Received message")
     img_dict = json.loads(body.decode("utf-8"))
     response = boto_client.get_object(Bucket=img_dict["bucket"], Key=img_dict["file_name"])
-    b64 = base64.b64encode(response["Body"].read()).decode("utf-8")
+    # b64 = base64.b64encode(response["Body"].read()).decode("utf-8")
 
     logger.info("Embedding")
-    embedding = model_client.embeddings.create(
-        model="Qwen3-VL-Embedding-2B",
-        input=[
-            {"type": "input_text", "text": "<|vision_start|><|image_pad|><|vision_end|>"},
-            {"type": "input_image", "image_base64": b64},
-        ]
-    ).data[0].embedding
+    file = {
+        "file": (
+            img_dict["file_name"],
+            response["Body"].read(),
+            response["ContentType"],
+        )
+    }
+    embedding_response = model_client.post(
+        "embeddings",
+        files=file,
+        data={"payload": json.dumps({"text": ""})}
+    )
+    embedding_response.raise_for_status()
+    embedding = embedding_response.json()["embedding"]
+
 
     logger.info("Inserting to database")
     collection.data.insert(

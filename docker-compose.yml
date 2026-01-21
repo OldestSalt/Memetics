@@ -98,11 +98,26 @@ services:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
       - COLLECTION_NAME=${COLLECTION_NAME}
+      - EMBEDDER_PORT=${EMBEDDER_PORT}
     restart: unless-stopped
     depends_on:
       - weaviate
       - minio
       - rabbitmq
+      - embedder
+
+  embedder:
+    container_name: embedder
+    build: embedder
+    environment:
+      - DEV=${DEV}
+      - EMBEDDER_PORT=${EMBEDDER_PORT}
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
 
   weaviate:
     image: "semitechnologies/weaviate:1.35.3"
@@ -154,5 +169,4 @@ volumes:
   .postgres:
   .minio:
   .weaviate:
-  .models:
 # sentry kibana loki grafana prometheus clickhouse elasticsearch redash
