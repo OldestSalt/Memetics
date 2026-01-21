@@ -20,10 +20,22 @@ logger = logging.getLogger("DB_MANAGER")
 load_dotenv()
 
 RABBITMQ_PORT = int(os.getenv("RABBITMQ_PORT"))
-DEV = bool(os.getenv("DEV"))
+DEV = bool(int(os.getenv("DEV")))
+
+if DEV:
+    logger.info("Starting with dev mode")
+else:
+    logger.info("Starting with production mode")
 
 connection = pika.BlockingConnection(
-    pika.ConnectionParameters(host='localhost' if DEV else 'rabbitmq', port=RABBITMQ_PORT)
+    pika.ConnectionParameters(
+        host="localhost" if DEV else "rabbitmq",
+        port=RABBITMQ_PORT,
+        credentials=pika.PlainCredentials(
+            username=os.getenv("RABBITMQ_USER"),
+            password=os.getenv("RABBITMQ_PASSWORD")
+        )
+    )
 )
 channel = connection.channel()
 channel.exchange_declare(exchange="images", exchange_type="fanout")
