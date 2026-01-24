@@ -49,6 +49,8 @@ services:
         minio server --address "0.0.0.0:9000" --console-address "0.0.0.0:9001" /data
     volumes:
       - .minio:/data
+    depends_on:
+      - alloy
     healthcheck:
       start_period: 3m
       test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
@@ -62,6 +64,8 @@ services:
     container_name: rabbitmq
     ports:
       - "127.0.0.1:${RABBITMQ_CONSOLE_PORT}:8080"
+    depends_on:
+      - alloy
     environment:
       - RABBITMQ_DEFAULT_USER=${RABBITMQ_DEFAULT_USER}
       - RABBITMQ_DEFAULT_PASS=${RABBITMQ_DEFAULT_PASS}
@@ -78,6 +82,8 @@ services:
       - "127.0.0.1:5432:5432"
     volumes:
       - .postgres:/var/lib/postgresql/18/docker
+    depends_on:
+      - alloy
     healthcheck:
       start_period: 3m
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
@@ -105,6 +111,7 @@ services:
       - minio
       - rabbitmq
       - embedder
+      - alloy
 
   embedder:
     container_name: embedder
@@ -113,6 +120,8 @@ services:
       - DEV=${DEV}
       - EMBEDDER_PORT=${EMBEDDER_PORT}
     restart: unless-stopped
+    depends_on:
+      - alloy
     deploy:
       resources:
         reservations:
@@ -136,34 +145,75 @@ services:
       - PERSISTENCE_DATA_PATH=/var/lib/weaviate
       - CLUSTER_HOSTNAME=node1
     restart: unless-stopped
+    depends_on:
+      - alloy
 
-#  vllm:
-#    image: vllm/vllm-openai:nightly
-#    container_name: vllm
-#    restart: unless-stopped
-#    ports:
-#      - "127.0.0.1:${VLLM_PORT}:3378"
-#    deploy:
-#      resources:
-#        reservations:
-#          devices:
-#            - capabilities: [gpu]
-#    volumes:
-#      - .models:/models
-#    ipc: host
-#    command: >
-#      --model Qwen/Qwen3-VL-Embedding-2B
-#      --host 0.0.0.0
-#      --port ${VLLM_PORT}
-#      --gpu-memory-utilization 0.8
-#      --max-model-len 4096
-#      --runner pooling
-#    healthcheck:
-#      test: [ "CMD", "curl", "-f", "http://localhost:${VLLM_PORT}/health" ]
-#      interval: ${HEALTHCHECK_INTERVAL}
-#      timeout: 20s
-#      retries: 3
-#      start_period: 3m
+  alloy:
+    image: grafana/alloy:latest
+    container_name: alloy
+    volumes:
+      - ./config/alloy.yaml:/etc/alloy/config.alloy
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: run --server.http.listen-addr=0.0.0.0:12345 --storage.path=/var/lib/alloy/data /etc/alloy/config.alloy
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${ALLOY_PORT}:12345"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:12345/ready"]
+      interval: ${HEALTHCHECK_INTERVAL}
+      timeout: 20s
+      retries: 3
+      start_period: 1m
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    container_name: grafana
+    volumes:
+      - ./config/grafana.yaml:/etc/grafana/provisioning/datasources/datasource.yaml
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: ${HEALTHCHECK_INTERVAL}
+      timeout: 20s
+      retries: 3
+      start_period: 1m
+    depends_on:
+      - loki
+      - alloy
+
+  loki:
+    image: grafana/loki:latest
+    container_name: loki
+    command: -config.file=/etc/loki/config.yaml
+    restart: unless-stopped
+    volumes:
+      - ./config/loki.yaml:/etc/loki/config.yaml
+    depends_on:
+      - minio
+      - alloy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3100/ready"]
+      interval: ${HEALTHCHECK_INTERVAL}
+      timeout: 20s
+      retries: 3
+      start_period: 1m
+
+  prometheus:
+    image: prom/prometheus:main
+    container_name: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yaml
+      - --web.enable-remote-write-receiver
+    restart: unless-stopped
+    volumes:
+      - ./config/prometheus.yaml:/etc/prometheus/prometheus.yaml
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT}:9090"
 
 volumes:
   .postgres:
