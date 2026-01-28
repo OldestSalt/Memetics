@@ -5,10 +5,11 @@ import logging
 from PIL import Image
 import io
 import uvicorn
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from vllm import LLM
 import models
+import base64
 
 logging.basicConfig(
     level=logging.INFO,
@@ -41,21 +42,12 @@ load_dotenv()
 PORT = int(os.getenv("EMBEDDER_PORT"))
 
 @app.post("/embeddings", response_model=models.EmbeddingsResponse)
-def embeddings(file: UploadFile = File(...), payload: str = Form(...)) -> models.EmbeddingsResponse:
-    # images = [Image.open(file.file) for file in files]
-    image = Image.open(file.file)
-    text = json.loads(payload)["text"]
+def embeddings(request: models.EmbeddingsRequest) -> models.EmbeddingsResponse:
+    images = [Image.open(io.BytesIO(base64.b64decode(image))) for image in request.images]
     embedding = app.state.model.embed({
-        "prompt": f"<|vision_start|><|image_pad|><|vision_end|>\n{text}",
-        "multi_modal_data": {"image": image}
+        "prompt": f"<|vision_start|>" + "<|image_pad|>" * len(images) + f"<|vision_end|>\n{request.text}",
+        "multi_modal_data": {"image": [image for image in images]},
     })[0].outputs.embedding
-    # embeddings = app.state.model.embed([
-    #     {
-    #         "prompt": f"<|vision_start|><|image_pad|><|vision_end|>\n{text}",
-    #         "multi_modal_data": {"image": image}
-    #     }
-    #     for image in images
-    # ])[0].outputs.embedding
     return models.EmbeddingsResponse(
         embedding=embedding
     )

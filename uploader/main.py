@@ -78,20 +78,13 @@ def handle_message(ch, method, properties, body):
     logger.info(f"Received message")
     img_dict = json.loads(body.decode("utf-8"))
     response = boto_client.get_object(Bucket=img_dict["bucket"], Key=img_dict["file_name"])
-    # b64 = base64.b64encode(response["Body"].read()).decode("utf-8")
+    b64 = base64.b64encode(response["Body"].read()).decode("utf-8")
 
     logger.info("Embedding")
-    file = {
-        "file": (
-            img_dict["file_name"],
-            response["Body"].read(),
-            response["ContentType"],
-        )
-    }
+
     embedding_response = model_client.post(
         "embeddings",
-        files=file,
-        data={"payload": json.dumps({"text": ""})}
+        json={"images": [b64]}
     )
     embedding_response.raise_for_status()
     embedding = embedding_response.json()["embedding"]
@@ -100,8 +93,11 @@ def handle_message(ch, method, properties, body):
     logger.info("Inserting to database")
     collection.data.insert(
         properties={
-            "bucket": img_dict["bucket"],
-            "file_name": img_dict["file_name"],
+            "images": [{
+                "bucket": img_dict["bucket"],
+                "file_name": img_dict["file_name"],
+            }],
+            "text": "",
         },
         vector=embedding,
     )
