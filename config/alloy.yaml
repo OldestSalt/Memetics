@@ -1,0 +1,36 @@
+discovery.docker "containers_list" {
+  host = "unix:///var/run/docker.sock"
+  refresh_interval = "5s"
+}
+
+discovery.relabel "labels" {
+  targets = []
+  
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    target_label = "container"
+    action = "replace"
+  }
+  
+  rule {
+    target_label = "service"
+    action = "replace"
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+  }
+}
+
+loki.source.docker "containers_scrape" {
+  host = "unix:///var/run/docker.sock"
+  targets = discovery.docker.containers_list.targets
+  forward_to = [loki.write.default.receiver]
+  relabel_rules = discovery.relabel.labels.rules
+  refresh_interval = "5s"
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+    tenant_id = "tenant1"
+  }
+  external_labels = {}
+}
